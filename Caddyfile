@@ -1,0 +1,43 @@
+# ============================================================
+# Caddyfile для uni.z-hq.com
+# Установка: https://caddyserver.com/docs/install
+# Запуск:    sudo caddy start --config /etc/caddy/Caddyfile
+# ============================================================
+
+uni.z-hq.com {
+    # API бэкенд
+    handle_path /api/* {
+        reverse_proxy 127.0.0.1:8088
+    }
+
+    # License API
+    handle_path /license-api/* {
+        reverse_proxy 127.0.0.1:8083
+    }
+
+    # User Portal (раскомментируй, если нужен отдельный путь)
+    # handle_path /user/* {
+    #     reverse_proxy 127.0.0.1:8082
+    # }
+
+    # Admin Portal — корень сайта
+    handle {
+        reverse_proxy 127.0.0.1:8081
+    }
+
+    # Автоматический HTTPS через Let's Encrypt
+    # Caddy сделает это сам, никакой дополнительной настройки не нужно.
+
+    # Заголовки безопасности
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}
+
+# Если User Portal нужен на отдельном поддомене:
+# portal.z-hq.com {
+#     reverse_proxy 127.0.0.1:8082
+# }
