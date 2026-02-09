@@ -3,3 +3,4 @@ unibee_redis_data/*
 .env
 
 shm_backup.sql
+docs/telegram-connector-plan.md
