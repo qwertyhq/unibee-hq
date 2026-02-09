@@ -2,8 +2,4 @@ unibee_db_data/*
 unibee_redis_data/*
 .env
 
-# Forked repos (separate git repositories)
-unibee-api/
-unibee-admin-portal/
-unibee-user-portal/
 shm_backup.sql
