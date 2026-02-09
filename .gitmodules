@@ -1,0 +1,9 @@
+[submodule "unibee-api"]
+	path = unibee-api
+	url = https://github.com/qwertyhq/unibee-api-hq.git
+[submodule "unibee-admin-portal"]
+	path = unibee-admin-portal
+	url = https://github.com/qwertyhq/unibee-admin-portal-hq.git
+[submodule "unibee-user-portal"]
+	path = unibee-user-portal
+	url = https://github.com/qwertyhq/unibee-user-portal-hq.git
