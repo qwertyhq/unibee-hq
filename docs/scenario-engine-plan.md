@@ -302,27 +302,32 @@ POST   /merchant/scenario/validate         — валидация JSON сцен�
 
 ## 5. Фазы реализации
 
-### Phase 1: Scenario Engine Core (Backend) — ~3-4 дня
-- [ ] Модель данных + миграции SQL
-- [ ] CRUD сценариев (store.go)
-- [ ] Движок выполнения (engine.go, executor.go)
-- [ ] Базовые действия: send_telegram, delay, condition, set_variable
-- [ ] Интеграция с InternalWebhookListener (триггер webhook_event)
-- [ ] API endpoints
-- [ ] Delayed task worker
+### Phase 1: Scenario Engine Core (Backend) — ~3-4 дня ✅ DONE
+- [x] Модель данных + миграции SQL (5 таблиц, entity, DAO — 3 слоя)
+- [x] CRUD сценариев (store.go)
+- [x] Движок выполнения (engine.go — парсинг DSL, запуск, resume, template rendering)
+- [x] Базовые действия: send_telegram, delay, condition, set_variable, log
+- [x] Интеграция с InternalWebhookListener (триггер webhook_event)
+- [x] API endpoints (12 эндпоинтов + контроллеры)
+- [x] Delayed task worker (30s polling loop)
+- [x] Валидация DSL
+- [x] Компиляция проверена ✅
 
-### Phase 2: Telegram Bot Interactive (Backend) — ~2-3 дня
-- [ ] Bot long polling handler
-- [ ] Команды /start, /status, /invoices, /plans
-- [ ] Inline-кнопки + callback handling
-- [ ] User ↔ Chat ID mapping
-- [ ] Триггеры bot_command и button_click
+### Phase 2: Telegram Bot Interactive (Backend) — ~2-3 дня ✅ DONE
+- [x] Bot long polling handler (bot_handler.go)
+- [x] Команда /start (с фолбэком на дефолтное приветствие)
+- [x] Команды /status, /invoices, /plans (встроенные, с вызовом UniBee API)
+- [x] Команда /help
+- [x] Inline-кнопки + callback handling (sc_{merchantId}_{action})
+- [x] User ↔ Chat ID mapping (merchant_telegram_user + UpsertTelegramUser)
+- [x] Триггеры bot_command и button_click
+- [x] InitAllBotPolling при старте приложения
 
-### Phase 3: HTTP + UniBee Actions (Backend) — ~2 дня
-- [ ] http_request action
-- [ ] unibee_api action (internal API calls)
-- [ ] send_email action
-- [ ] Expression evaluator для condition
+### Phase 3: HTTP + UniBee Actions (Backend) — ~2 дня ✅ DONE
+- [x] http_request action (GET/POST/PUT/DELETE, JSON body, headers, 30s timeout)
+- [x] unibee_api action (get_subscription, get_user, get_invoice_list, cancel_subscription, create_discount, get_plan)
+- [x] send_email action (через email.Send + SendgridEmailReq)
+- [x] Expression evaluator: ==, !=, >, <, >=, <=, contains(), starts_with(), ends_with(), &&, ||, !, числовые сравнения
 
 ### Phase 4: Admin UI — Scenario List + JSON Editor (Frontend) — ~2 дня
 - [ ] Список сценариев (CRUD)
