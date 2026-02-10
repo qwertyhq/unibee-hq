@@ -263,29 +263,27 @@ POST   /merchant/scenario/validate         — валидация JSON сцен�
 
 ## 4. Frontend (React)
 
-### 4.1 Визуальный конструктор
+### 4.1 Визуальный конструктор (n8n-style)
 
-Используем **React Flow** (reactflow.dev) — библиотека для drag-and-drop node-based редакторов.
+Используем **@xyflow/react v12** (React Flow) + **@dagrejs/dagre** — n8n-style node editor с auto-layout.
 
 ```
 Компоненты:
 ├── ScenarioList/         — список сценариев с CRUD
-├── ScenarioEditor/       — визуальный редактор
-│   ├── Canvas.tsx        — React Flow canvas
+├── ScenarioDetail/       — JSON editor + Visual toggle
+├── flowEditor/           — визуальный редактор (n8n-style)
+│   ├── FlowEditor.tsx    — главный canvas (ReactFlowProvider + DnD + layout)
+│   ├── converter.ts      — DSL ↔ Flow bidirectional converter с dagre layout
+│   ├── flowEditor.css    — стили: n8n-ноды, палитра, context menu
+│   ├── CustomEdge.tsx    — animated smoothstep edge с delete button
+│   ├── ContextMenu.tsx   — right-click меню (duplicate, delete, disable)
+│   ├── NodePanel.tsx     — unified панель настройки (формы по типу ноды)
 │   ├── nodes/
-│   │   ├── TriggerNode.tsx
-│   │   ├── ActionNode.tsx
-│   │   ├── ConditionNode.tsx
-│   │   ├── DelayNode.tsx
-│   │   └── EndNode.tsx
-│   ├── panels/
-│   │   ├── TriggerPanel.tsx    — настройка триггера
-│   │   ├── TelegramPanel.tsx   — настройка TG сообщения
-│   │   ├── HttpPanel.tsx       — настройка HTTP запроса
-│   │   ├── ConditionPanel.tsx  — настройка условия
-│   │   ├── DelayPanel.tsx      — настройка задержки
-│   │   └── UniBeeApiPanel.tsx  — настройка UniBee действия
-│   └── Toolbar.tsx       — панель инструментов
+│   │   ├── TriggerNode.tsx   — n8n-style: зелёная полоса, иконка trigger type
+│   │   ├── ActionNode.tsx    — цвет по stepType, превью параметров
+│   │   ├── ConditionNode.tsx — два выхода (Yes/No), preview condition
+│   │   └── DelayNode.tsx     — оранжевый, показывает duration
+│   └── index.ts
 ├── ScenarioExecutions/   — история выполнений
 └── ScenarioTemplates/    — предустановленные шаблоны сценариев
 ```
@@ -340,20 +338,37 @@ POST   /merchant/scenario/validate         — валидация JSON сцен�
 - [x] СVG иконка + NavLink routing
 - [x] Vite build проверен ✅
 
-### Phase 5: Visual Flow Editor (Frontend) — ~4-5 дней
-- [ ] React Flow интеграция
-- [ ] Кастомные ноды (trigger, action, condition, delay)
-- [ ] Панели настройки для каждого типа ноды
-- [ ] Конвертация Flow ↔ JSON DSL
-- [ ] Drag-and-drop из палитры действий
-- [ ] Валидация и превью
+### Phase 5: Visual Flow Editor — n8n-style (Frontend) — ~5-6 дней
+- [ ] React Flow v12 + @dagrejs/dagre для auto-layout
+- [ ] n8n-style кастомные ноды (цветная полоса слева, иконка, статус)
+- [ ] 4 типа нод: TriggerNode, ActionNode, ConditionNode, DelayNode
+- [ ] Custom edge с кнопкой удаления + animated smoothstep
+- [ ] Context menu (правый клик) — duplicate, delete, disable
+- [ ] Dagre auto-layout (вертикальный/горизонтальный) с кнопкой "Arrange"
+- [ ] Drag-and-drop палитра (8 action types) по образцу n8n
+- [ ] Unified NodePanel — настройка параметров выбранной ноды (Ant Design формы)
+- [ ] Bidirectional converter DSL ↔ Flow (dslToFlow + flowToDsl)
+- [ ] Connection validation (source→target, без self-loop)
+- [ ] Execution state visualization (подсветка нод при запуске: running/success/failed)
+- [ ] Интеграция в detail.tsx — Segmented toggle JSON/Visual
+- [ ] Keyboard shortcuts: Delete, Backspace для удаления нод/рёбер
 
-### Phase 6: Advanced Features — ~2-3 дня
-- [ ] Schedule-триггеры (cron)
-- [ ] Параллельные ветки
-- [ ] Loops (повтор шагов)
-- [ ] Webhook для внешних систем (принимать события извне)
-- [ ] Логирование и мониторинг
+### Phase 6: Advanced Features — ~3-4 дня
+- [ ] Schedule-триггеры (cron) — backend cron worker + UI cron input
+- [ ] Параллельные ветки — `type: "parallel"` step с массивом sub-step arrays
+- [ ] Loops / retry — `type: "loop"` step с max_iterations и break condition
+- [ ] Webhook для внешних систем (принимать события извне через endpoint)
+- [ ] Execution replay — повторный запуск с сохранёнными trigger_data
+- [ ] Версионирование сценариев — snapshot JSON при каждом сохранении
+- [ ] Import/Export сценариев в JSON файл
+- [ ] Расширение DSL: `on_error` handler для каждого шага (retry, skip, abort)
+
+**Совместимость Phase 5 ↔ Phase 6:**
+- DSL поддерживает вложенные шаги: condition.then/else содержат массивы StepDSL
+- Converter работает с DAG (не только линейные цепочки)
+- nodeTypes экспортируются из отдельного registry → легко добавить `parallel`, `loop`
+- Execution visualization через WebSocket в будущем (Phase 6)
+- Context menu расширяемый через registry паттерн
 
 **Итого: ~15-20 дней разработки**
 
@@ -367,8 +382,8 @@ POST   /merchant/scenario/validate         — валидация JSON сцен�
 - Остальное — стандартная библиотека Go + GoFrame
 
 ### Frontend (React)
-- `@xyflow/react` (React Flow) — visual flow editor
-- `@monaco-editor/react` — JSON editor (опционально)
+- `@xyflow/react` (React Flow v12) — visual flow editor
+- `@dagrejs/dagre` — автоматический граф-layout (dagre algorithm)
 - Остальное — уже есть (Ant Design, React Router)
 
 ---
