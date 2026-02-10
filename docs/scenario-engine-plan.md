@@ -329,11 +329,16 @@ POST   /merchant/scenario/validate         — валидация JSON сцен�
 - [x] send_email action (через email.Send + SendgridEmailReq)
 - [x] Expression evaluator: ==, !=, >, <, >=, <=, contains(), starts_with(), ends_with(), &&, ||, !, числовые сравнения
 
-### Phase 4: Admin UI — Scenario List + JSON Editor (Frontend) — ~2 дня
-- [ ] Список сценариев (CRUD)
-- [ ] JSON-редактор сценариев
-- [ ] История выполнений
-- [ ] Предустановленные шаблоны
+### Phase 4: Admin UI — Scenario List + JSON Editor (Frontend) — ~2 дня ✅ DONE
+- [x] Список сценариев (CRUD) — list.tsx с таблицей, фильтрами, toggle, delete
+- [x] JSON-редактор сценариев — detail.tsx с TextArea, валидацией, форматированием, preview-панелью
+- [x] История выполнений — executions.tsx с таблицей + Drawer + Timeline для step logs
+- [x] Предустановленные шаблоны (5 шаблонов: Payment Recovery, Churn Prevention, Welcome, Expiring, Bot Command)
+- [x] API request functions (12 endpoints в requests/index.ts)
+- [x] TypeScript типы (types.ts)
+- [x] Маршруты + sidebar menu (routes.tsx, sideMenu.tsx)
+- [x] СVG иконка + NavLink routing
+- [x] Vite build проверен ✅
 
 ### Phase 5: Visual Flow Editor (Frontend) — ~4-5 дней
 - [ ] React Flow интеграция
