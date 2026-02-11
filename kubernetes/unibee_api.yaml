@@ -37,6 +37,12 @@ spec:
                 configMapKeyRef:
                   name: unibee-config
                   key: UNIBEE_REDIS_PASSWORD
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                configMapKeyRef:
+                  name: unibee-config
+                  key: TELEGRAM_BOT_TOKEN
+                  optional: true
           ports:
             - containerPort: 8088
               name: http
