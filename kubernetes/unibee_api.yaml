@@ -39,8 +39,8 @@ spec:
                   key: UNIBEE_REDIS_PASSWORD
             - name: TELEGRAM_BOT_TOKEN
               valueFrom:
-                configMapKeyRef:
-                  name: unibee-config
+                secretKeyRef:
+                  name: unibee-secrets
                   key: TELEGRAM_BOT_TOKEN
                   optional: true
           ports:
