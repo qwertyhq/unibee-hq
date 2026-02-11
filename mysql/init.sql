@@ -4,3 +4,4 @@
 -- GRANT ALL PRIVILEGES ON ${MYSQL_DATABASE}.* TO '${MYSQL_USER}'@'%';
 -- FLUSH PRIVILEGES;
 source /opt/sql/structure.sql;
+source /opt/sql/scenario_engine.sql;

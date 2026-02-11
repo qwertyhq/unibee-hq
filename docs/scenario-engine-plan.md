@@ -12,6 +12,24 @@
 - **Произвольные задачи** — выставить счёт, создать промокод, сменить план через бота
 - **Универсальные API** — отправка HTTP-запросов к любым внешним сервисам
 
+### Разделение ответственности: Settings vs Scenarios
+
+> **Принцип:** Настройки подключений живут в Settings (`/configuration`),
+> рабочие процессы (флоу) строятся в Scenarios.
+
+| Область | Где настраивается | Что содержит |
+|---|---|---|
+| **Settings → Integrations** (`/configuration?tab=integrations`) | Страница настроек | Токены, ключи, URL-ы подключений (Telegram bot token, Slack webhook URL, SMTP, custom HTTP API endpoints) |
+| **Settings → Telegram** (`/configuration?tab=telegram`) | Страница настроек | Telegram bot token, default chat, bot name — **только подключение** |
+| **Scenarios** (`/scenario`) | Визуальный конструктор | Workflows/flows: какой триггер → какие шаги → какие интеграции использовать. Ссылается на integration_id из Settings |
+
+**Было (проблема):** Telegram-настройки в `/configuration?tab=telegram` дублировали сценарии — и подключение, и логику отправки настраивали в одном месте.
+
+**Стало (решение):**
+- `/configuration?tab=telegram` — только настройка бота (token, имя, дефолтный чат)
+- `/configuration?tab=integrations` — все внешние подключения (Telegram, Slack, Discord, HTTP API, email SMTP)
+- `/scenario` — визуальный конструктор workflow-процессов, использующих настроенные интеграции
+
 ---
 
 ## 2. Архитектура
@@ -19,6 +37,7 @@
 ### 2.1 Модель данных (JSON DSL)
 
 Сценарий = JSON-документ из **триггера**, **шагов** и **переменных**.
+Шаги, использующие внешние сервисы, ссылаются на `integration_id` из таблицы `merchant_scenario_integration`.
 
 ```json
 {
@@ -38,6 +57,7 @@
     {
       "id": "step_1",
       "type": "send_telegram",
+      "integration_id": 1,
       "params": {
         "message": "⚠️ Платёж не прошёл\nПлан: {{plan_name}}\nСумма: {{amount}}",
         "buttons": [
@@ -98,31 +118,66 @@
 
 ### 2.3 Типы шагов (Actions)
 
-| Тип | Описание | Параметры |
-|-----|----------|-----------|
-| `send_telegram` | Отправить сообщение в TG | `message`, `buttons[]`, `chatId` (опц.) |
-| `http_request` | HTTP-запрос к любому API | `method`, `url`, `headers`, `body` |
-| `delay` | Задержка | `duration` (1m, 1h, 1d) |
-| `condition` | Условный переход | `if`, `then`, `else` |
-| `set_variable` | Установить переменную | `name`, `value` |
-| `unibee_api` | Вызов UniBee API | `action`, `params` |
-| `send_email` | Отправка email | `to`, `subject`, `body` |
-| `log` | Запись в лог | `message`, `level` |
+| Тип | Описание | Параметры | Требует integration |
+|-----|----------|-----------|---------------------|
+| `send_telegram` | Отправить сообщение в TG | `message`, `buttons[]`, `chatId` (опц.) | Да (type=telegram) |
+| `http_request` | HTTP-запрос к любому API | `method`, `url`, `headers`, `body` | Опционально (type=http_api) |
+| `delay` | Задержка | `duration` (1m, 1h, 1d) | Нет |
+| `condition` | Условный переход | `if`, `then`, `else` | Нет |
+| `set_variable` | Установить переменную | `name`, `value` | Нет |
+| `unibee_api` | Вызов UniBee API | `action`, `params` | Нет (внутренний) |
+| `send_email` | Отправка email | `to`, `subject`, `body` | Опционально (type=email) |
+| `send_slack` | Отправить в Slack | `message`, `channel` | Да (type=slack) |
+| `send_discord` | Отправить в Discord | `message`, `channel_id` | Да (type=discord) |
+| `log` | Запись в лог | `message`, `level` | Нет |
+
+> **integration_id** — ссылка на запись в `merchant_scenario_integration`.
+> Шаг берёт credentials/URL из интеграции, а не хранит их в DSL.
+> Это позволяет менять токены в Settings без редактирования сценариев.
 
 ### 2.4 UniBee API Actions
 
+Полный список доступных billing actions для шага `unibee_api`.
+Документация API: https://docs.unibee.dev/api-reference/
+
 ```
-create_invoice      — выставить счёт
-send_payment_link   — отправить ссылку на оплату
-cancel_subscription — отменить подписку
-change_plan         — сменить план
-create_discount     — создать промокод
-apply_discount      — применить скидку
-freeze_user         — заморозить пользователя
-send_email          — отправить email
-get_subscription    — получить данные подписки
-get_user            — получить данные пользователя
-get_invoice_list    — получить список счетов
+-- Подписки
+get_subscription       — получить данные подписки
+cancel_subscription    — отменить подписку
+change_plan            — сменить план
+suspend_subscription   — приостановить подписку
+resume_subscription    — возобновить подписку
+
+-- Счета и платежи
+create_invoice         — выставить счёт
+get_invoice_list       — получить список счетов
+send_payment_link      — отправить ссылку на оплату
+create_payment         — создать платёж
+
+-- Пользователи
+get_user               — получить данные пользователя
+freeze_user            — заморозить пользователя
+update_user            — обновить данные пользователя
+
+-- Промокоды
+create_discount        — создать промокод
+apply_discount         — применить скидку
+get_discount_list      — список промокодов
+
+-- Планы
+get_plan               — получить данные плана
+get_plan_list          — список доступных планов
+
+-- Email
+send_email             — отправить email через внутреннюю систему
+
+-- Кредиты
+add_credit             — начислить кредит
+get_credit_balance     — получить баланс кредитов
+
+-- Метрики (usage-based billing)
+get_metric_usage       — получить использование метрики
+report_metric_event    — отправить событие метрики
 ```
 
 ---
@@ -136,8 +191,11 @@ internal/logic/scenario/
 ├── engine.go            — основной движок: парсинг, запуск, управление
 ├── executor.go          — выполнение отдельных шагов
 ├── trigger.go           — регистрация и матчинг триггеров
+├── integration.go       — CRUD интеграций (merchant_scenario_integration)
 ├── actions/
 │   ├── telegram.go      — send_telegram (с кнопками, callback)
+│   ├── slack.go         — send_slack (webhook)
+│   ├── discord.go       — send_discord (webhook)
 │   ├── http.go          — http_request
 │   ├── delay.go         — delay (через Redis delayed queue)
 │   ├── condition.go     — condition (expression evaluator)
@@ -146,12 +204,48 @@ internal/logic/scenario/
 │   └── variable.go      — set_variable
 ├── expression.go        — парсер выражений для condition
 ├── bot_handler.go       — обработка команд и callback от TG бота
-└── store.go             — CRUD сценариев (DB)
+├── store.go             — CRUD сценариев (DB)
+└── template_store.go    — CRUD шаблонов сценариев (DB)
 ```
 
 ### 3.2 Таблицы БД
 
 ```sql
+-- Интеграции с внешними сервисами (настраиваются в Settings)
+CREATE TABLE merchant_scenario_integration (
+    id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    merchant_id     BIGINT UNSIGNED NOT NULL,
+    integration_type VARCHAR(50) NOT NULL,        -- telegram, slack, discord, webhook, http_api, email
+    name            VARCHAR(255) NOT NULL,         -- "My Slack Workspace", "TG Bot Production"
+    config_json     TEXT,                          -- encrypted JSON: tokens, urls, credentials
+    is_active       TINYINT DEFAULT 1,
+    last_tested_at  BIGINT DEFAULT 0,
+    test_status     VARCHAR(20) DEFAULT '',         -- untested, success, failed
+    create_time     BIGINT DEFAULT 0,
+    gmt_create      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    gmt_modify      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_deleted      INT DEFAULT 0,
+    INDEX idx_merchant_type (merchant_id, integration_type)
+);
+
+-- Шаблоны сценариев (системные + мерчант-кастомные)
+CREATE TABLE merchant_scenario_template (
+    id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    merchant_id     BIGINT UNSIGNED NOT NULL,      -- 0 = системный шаблон
+    name            VARCHAR(255) NOT NULL,
+    description     TEXT,
+    category        VARCHAR(50) NOT NULL,           -- payment, subscription, onboarding, retention, notification
+    scenario_json   LONGTEXT NOT NULL,
+    icon            VARCHAR(100) DEFAULT '',
+    is_system       TINYINT DEFAULT 0,
+    create_time     BIGINT DEFAULT 0,
+    gmt_create      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    gmt_modify      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_deleted      INT DEFAULT 0,
+    INDEX idx_merchant (merchant_id),
+    INDEX idx_category (category)
+);
+
 -- Сценарии
 CREATE TABLE merchant_scenario (
     id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -162,6 +256,10 @@ CREATE TABLE merchant_scenario (
     enabled         TINYINT DEFAULT 0,
     trigger_type    VARCHAR(50) NOT NULL,        -- для быстрого поиска
     trigger_value   VARCHAR(255),                -- event name / command / cron
+    template_id     BIGINT UNSIGNED DEFAULT 0,  -- source template id
+    version         INT DEFAULT 1,               -- incremented on each save
+    last_run_at     BIGINT DEFAULT 0,
+    run_count       BIGINT DEFAULT 0,
     create_time     BIGINT DEFAULT 0,
     gmt_create      DATETIME DEFAULT CURRENT_TIMESTAMP,
     gmt_modify      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -174,6 +272,7 @@ CREATE TABLE merchant_scenario_execution (
     id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     merchant_id     BIGINT UNSIGNED NOT NULL,
     scenario_id     BIGINT UNSIGNED NOT NULL,
+    scenario_version INT DEFAULT 1,
     trigger_data    TEXT,                        -- входные данные триггера
     status          VARCHAR(20) NOT NULL,        -- running, completed, failed, waiting
     current_step    VARCHAR(100),                -- ID текущего шага
@@ -213,11 +312,29 @@ CREATE TABLE merchant_scenario_delayed_task (
     gmt_create      DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_execute_at (status, execute_at)
 );
+
+-- Маппинг Telegram chat_id → UniBee user
+CREATE TABLE merchant_telegram_user (
+    id              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    merchant_id     BIGINT UNSIGNED NOT NULL,
+    user_id         BIGINT UNSIGNED NOT NULL,
+    telegram_chat_id VARCHAR(50) NOT NULL,
+    telegram_username VARCHAR(100) DEFAULT '',
+    first_name      VARCHAR(100) DEFAULT '',
+    last_name       VARCHAR(100) DEFAULT '',
+    gmt_create      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    gmt_modify      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_deleted      INT DEFAULT 0,
+    create_time     BIGINT DEFAULT 0,
+    UNIQUE INDEX idx_merchant_chat (merchant_id, telegram_chat_id),
+    INDEX idx_merchant_user (merchant_id, user_id)
+);
 ```
 
 ### 3.3 API Endpoints
 
 ```
+-- Сценарии
 POST   /merchant/scenario/new              — создать сценарий
 POST   /merchant/scenario/edit             — изменить сценарий
 POST   /merchant/scenario/delete           — удалить
@@ -231,6 +348,19 @@ GET    /merchant/scenario/action_list      — список доступных �
 GET    /merchant/scenario/trigger_list     — список доступных триггеров
 GET    /merchant/scenario/variable_list    — список доступных переменных
 POST   /merchant/scenario/validate         — валидация JSON сценария
+
+-- Интеграции (настраиваются в Settings → Integrations)
+POST   /merchant/scenario/integration/new      — создать интеграцию
+POST   /merchant/scenario/integration/edit     — изменить интеграцию
+POST   /merchant/scenario/integration/delete   — удалить интеграцию
+GET    /merchant/scenario/integration/list     — список интеграций
+GET    /merchant/scenario/integration/detail   — детали интеграции
+POST   /merchant/scenario/integration/test     — тест подключения
+
+-- Шаблоны
+GET    /merchant/scenario/template/list        — список шаблонов (системные + свои)
+GET    /merchant/scenario/template/detail      — детали шаблона
+POST   /merchant/scenario/template/create_from — создать сценарий из шаблона
 ```
 
 ### 3.4 Telegram Bot Handler
@@ -288,13 +418,38 @@ POST   /merchant/scenario/validate         — валидация JSON сцен�
 └── ScenarioTemplates/    — предустановленные шаблоны сценариев
 ```
 
-### 4.2 Предустановленные шаблоны
+### 4.2 Settings → Integrations (НЕ в Scenarios)
 
-1. **Payment Failed Recovery** — платёж не прошёл → напоминание → эскалация
-2. **Subscription Expiring** — подписка заканчивается → предупреждение → кнопка продления
-3. **New User Welcome** — новый пользователь → приветствие → ссылка на оплату
-4. **Churn Prevention** — отмена подписки → предложение скидки → промокод
-5. **Admin Alerts** — критические события → уведомление в Slack/Telegram
+Интеграции настраиваются на странице настроек:
+
+```
+src/components/settings/
+├── integrations/
+│   ├── IntegrationList.tsx       — список подключённых интеграций
+│   ├── IntegrationForm.tsx       — форма добавления/редактирования
+│   ├── TelegramConfig.tsx        — настройка Telegram бота (token, name, default chat)
+│   ├── SlackConfig.tsx           — настройка Slack (webhook URL, channel)
+│   ├── DiscordConfig.tsx         — настройка Discord (webhook URL)
+│   ├── HttpApiConfig.tsx         — настройка HTTP API (base URL, headers, auth)
+│   ├── EmailConfig.tsx           — настройка Email (SMTP или SendGrid API key)
+│   └── IntegrationTestButton.tsx — кнопка "Test Connection"
+```
+
+> **Важно:** Текущие настройки Telegram в `/configuration?tab=telegram` 
+> мигрируют в общий раздел `/configuration?tab=integrations`.
+> Telegram — просто один из типов интеграций.
+> В сценариях мерчант выбирает интеграцию из dropdown (по integration_id).
+
+### 4.3 Предустановленные шаблоны
+
+1. **Payment Failed Recovery** — платёж не прошёл → TG напоминание → задержка → эскалация в Slack
+2. **Subscription Expiring** — подписка заканчивается → TG предупреждение → кнопка продления
+3. **New User Welcome** — новый пользователь → приветствие TG → ссылка на оплату
+4. **Churn Prevention** — отмена подписки → предложение скидки → промокод через UniBee API
+5. **Admin Alerts** — критические события → уведомление в Slack/Discord + TG админу
+6. **Invoice Reminder** — неоплаченный счёт → email → TG → Slack эскалация
+7. **Plan Upgrade Nudge** — пользователь на бесплатном плане 30 дней → предложение апгрейда
+8. **Usage Limit Warning** — метрика приближается к лимиту → TG уведомление + email
 
 ---
 
@@ -338,20 +493,23 @@ POST   /merchant/scenario/validate         — валидация JSON сцен�
 - [x] СVG иконка + NavLink routing
 - [x] Vite build проверен ✅
 
-### Phase 5: Visual Flow Editor — n8n-style (Frontend) — ~5-6 дней
+### Phase 5: Visual Flow Editor + Integrations (Frontend) — ~5-6 дней
 - [ ] React Flow v12 + @dagrejs/dagre для auto-layout
 - [ ] n8n-style кастомные ноды (цветная полоса слева, иконка, статус)
 - [ ] 4 типа нод: TriggerNode, ActionNode, ConditionNode, DelayNode
 - [ ] Custom edge с кнопкой удаления + animated smoothstep
 - [ ] Context menu (правый клик) — duplicate, delete, disable
 - [ ] Dagre auto-layout (вертикальный/горизонтальный) с кнопкой "Arrange"
-- [ ] Drag-and-drop палитра (8 action types) по образцу n8n
+- [ ] Drag-and-drop палитра (10 action types включая slack, discord) по образцу n8n
 - [ ] Unified NodePanel — настройка параметров выбранной ноды (Ant Design формы)
+- [ ] **Integration selector в NodePanel** — dropdown выбора интеграции (из Settings)
 - [ ] Bidirectional converter DSL ↔ Flow (dslToFlow + flowToDsl)
 - [ ] Connection validation (source→target, без self-loop)
 - [ ] Execution state visualization (подсветка нод при запуске: running/success/failed)
 - [ ] Интеграция в detail.tsx — Segmented toggle JSON/Visual
 - [ ] Keyboard shortcuts: Delete, Backspace для удаления нод/рёбер
+- [ ] **Settings → Integrations** UI (CRUD интеграций, test connection)
+- [ ] **Миграция Telegram настроек** из `/configuration?tab=telegram` в `/configuration?tab=integrations`
 
 ### Phase 6: Advanced Features — ~3-4 дня
 - [ ] Schedule-триггеры (cron) — backend cron worker + UI cron input
@@ -359,9 +517,10 @@ POST   /merchant/scenario/validate         — валидация JSON сцен�
 - [ ] Loops / retry — `type: "loop"` step с max_iterations и break condition
 - [ ] Webhook для внешних систем (принимать события извне через endpoint)
 - [ ] Execution replay — повторный запуск с сохранёнными trigger_data
-- [ ] Версионирование сценариев — snapshot JSON при каждом сохранении
+- [ ] Версионирование сценариев — snapshot JSON при каждом сохранении (уже `version` колонка)
 - [ ] Import/Export сценариев в JSON файл
 - [ ] Расширение DSL: `on_error` handler для каждого шага (retry, skip, abort)
+- [ ] **Marketplace шаблонов** — поиск и установка шаблонов из каталога
 
 **Совместимость Phase 5 ↔ Phase 6:**
 - DSL поддерживает вложенные шаги: condition.then/else содержат массивы StepDSL
@@ -369,6 +528,7 @@ POST   /merchant/scenario/validate         — валидация JSON сцен�
 - nodeTypes экспортируются из отдельного registry → легко добавить `parallel`, `loop`
 - Execution visualization через WebSocket в будущем (Phase 6)
 - Context menu расширяемый через registry паттерн
+- Integration system — новые типы интеграций добавляются через config_json schema
 
 **Итого: ~15-20 дней разработки**
 
@@ -388,12 +548,73 @@ POST   /merchant/scenario/validate         — валидация JSON сцен�
 
 ---
 
-## 7. Пример сценария: Churn Prevention
+## 7. Интеграции — config_json schemas
+
+Каждый тип интеграции хранит свои настройки в `config_json`. Ниже — схемы для каждого типа.
+
+### 7.1 Telegram
+```json
+{
+  "bot_token": "123456:ABC-DEF...",
+  "bot_name": "MyBillingBot",
+  "default_chat_id": "-1001234567890",
+  "parse_mode": "HTML",
+  "disable_web_page_preview": true
+}
+```
+
+### 7.2 Slack
+```json
+{
+  "webhook_url": "https://hooks.slack.com/services/T.../B.../xxx",
+  "default_channel": "#billing-alerts",
+  "bot_name": "UniBee Bot",
+  "icon_emoji": ":moneybag:"
+}
+```
+
+### 7.3 Discord
+```json
+{
+  "webhook_url": "https://discord.com/api/webhooks/123/xxx",
+  "bot_name": "UniBee",
+  "default_channel_id": "1234567890"
+}
+```
+
+### 7.4 HTTP API (Custom Webhook)
+```json
+{
+  "base_url": "https://api.example.com",
+  "auth_type": "bearer",
+  "auth_token": "sk-xxx...",
+  "default_headers": {
+    "Content-Type": "application/json",
+    "X-Custom-Header": "value"
+  },
+  "timeout_seconds": 30
+}
+```
+
+### 7.5 Email (SMTP / SendGrid)
+```json
+{
+  "provider": "sendgrid",
+  "api_key": "SG.xxx...",
+  "from_email": "billing@example.com",
+  "from_name": "Billing Team",
+  "reply_to": "support@example.com"
+}
+```
+
+---
+
+## 8. Пример сценария: Churn Prevention
 
 ```
 Триггер: subscription.cancelled
 
-Шаг 1: Отправить TG сообщение
+Шаг 1: send_telegram (integration_id: 1)
    "😔 Жаль, что вы отменили подписку {{plan_name}}.
     Может, дать скидку 20%?"
    [Кнопка: "Да, хочу скидку"] [Кнопка: "Нет, спасибо"]
@@ -404,7 +625,46 @@ POST   /merchant/scenario/validate         — валидация JSON сцен�
    → "Да" → Шаг 4
    → "Нет" / timeout → Шаг 6
 
-Шаг 4: UniBee API → create_discount (20%, code: SAVE20)
-Шаг 5: TG сообщение "Вот ваш промокод: SAVE20 🎉"
-Шаг 6: Log "User declined retention offer"
+Шаг 4: unibee_api → create_discount (20%, code: SAVE20)
+
+Шаг 5: send_telegram (integration_id: 1)
+   "Вот ваш промокод: SAVE20 🎉"
+
+Шаг 6: send_slack (integration_id: 2)
+   "User {{user_email}} declined retention offer for {{plan_name}}"
+
+Шаг 7: Log "Churn prevention flow completed"
+```
+
+## 9. Пример сценария: Multi-channel Invoice Reminder
+
+```
+Триггер: webhook_event → invoice.overdue
+
+Шаг 1: send_email (integration_id: 3)
+   Тема: "Invoice #{{invoice_id}} is overdue"
+   Тело: стандартный шаблон с кнопкой оплаты
+
+Шаг 2: delay (duration: 24h)
+
+Шаг 3: condition (if: {{invoice_status}} != 'paid')
+   → then: step_4
+   → else: end
+
+Шаг 4: send_telegram (integration_id: 1)
+   "⚠️ Напоминание: счёт #{{invoice_id}} не оплачен ({{amount}})"
+   [Кнопка: "Оплатить сейчас"]
+
+Шаг 5: delay (duration: 48h)
+
+Шаг 6: condition (if: {{invoice_status}} != 'paid')
+   → then: step_7
+   → else: end
+
+Шаг 7: send_slack (integration_id: 2)
+   "#billing-alerts: Overdue invoice #{{invoice_id}} for {{user_email}} — needs manual attention"
+
+Шаг 8: http_request (integration_id: 4)
+   POST https://crm.example.com/api/tickets
+   {"subject": "Overdue invoice", "user": "{{user_email}}", "amount": "{{amount}}"}
 ```
